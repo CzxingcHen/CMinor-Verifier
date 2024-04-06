@@ -10,11 +10,14 @@ You should have received a copy of the GNU General Public License along with CMi
 
 using System.Diagnostics.Contracts;
 using System.Collections.Generic;
+using System.IO;
 
 namespace cminor
 {
     class BasicPath
     {
+        public Block headBlock = null;
+        public Block tailBlock = null;
         public List<Expression> headConditions = new List<Expression>();
         public List<Expression> headRankingFunctions = new List<Expression>();
 
@@ -30,6 +33,35 @@ namespace cminor
         {
             foreach (Expression headCondition in headConditions)
                 Contract.Invariant(headCondition.type is BoolType);
+        }
+
+        public void Print(TextWriter writer)
+        {
+            writer.Write($"headBlock: {headBlock}\n");
+            writer.Write($"tailBlock: {tailBlock}\n");
+            
+            writer.Write("headConditions: ");
+            for (int i = 0; i < headConditions.Count; i++)
+            {
+                headConditions[i].Print(writer);
+                writer.Write(", ");
+            }
+            writer.Write("\n");
+            writer.Write("tailConditions: ");
+            for (int i = 0; i < tailConditions.Count; i++)
+            {
+                tailConditions[i].Print(writer);
+                writer.Write(", ");
+            }
+            writer.Write("\n");
+            writer.Write("statements: ");
+            for (int i = 0; i < statements.Count; i++)
+            {
+                statements[i].Print(writer);
+                writer.Write(", ");
+            }
+            writer.Write("\n");
+            writer.Write("\n");
         }
     }
 }
