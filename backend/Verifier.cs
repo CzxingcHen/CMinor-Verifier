@@ -178,6 +178,8 @@ namespace cminor
         public Expression headRankingFunctionGE0Condition;
         public bool checkTermination;
         public bool knowRankingFunctionDescending;
+        
+        
 
         public VerificationCondition(BasicPath basicPath)
         {
