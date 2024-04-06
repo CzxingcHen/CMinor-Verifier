@@ -13,15 +13,10 @@ You should have received a copy of the GNU General Public License along with CMi
     TODO: 这是你唯一允许编辑的文件，你可以对此文件作任意的修改，只要整个项目可以正常地跑起来。
 */
 
-using System;
 using System.IO;
 using System.Linq;
 using System.Collections.Generic;
-using System.ComponentModel.DataAnnotations;
 using System.Diagnostics;
-using System.Reflection.Metadata.Ecma335;
-using System.Runtime.CompilerServices;
-using Antlr4.Runtime.Atn;
 using Microsoft.Z3;
 
 namespace cminor
@@ -53,12 +48,12 @@ namespace cminor
         {
             List<BasicPath> basicPaths = GenBasicPaths(cfg);
             
-            writer.WriteLine("BasicPaths: ");
-            foreach (BasicPath bp in basicPaths)
-            {
-                bp.Print(writer);
-            }
-            writer.Write("\n");
+            // writer.WriteLine("BasicPaths: ");
+            // foreach (BasicPath bp in basicPaths)
+            // {
+            //     bp.Print(writer);
+            // }
+            // writer.Write("\n");
             
             List<VerificationCondition> verificationConditions = basicPaths
                 .Select(bp => new VerificationCondition(bp))
@@ -66,20 +61,19 @@ namespace cminor
             foreach (Predicate p in cfg.predicates) { solver.definePredicate(p); }
             bool allValid = verificationConditions.All(vc => vc.Valid(solver));
             
-            writer.WriteLine("Verification Conditions: ");
-            foreach (VerificationCondition vc in verificationConditions)
-            {
-                vc.Print(writer);
-                writer.WriteLine($"valid = {vc.Valid(solver)}\n");
-            }
-            writer.Write("\n");
+            // writer.WriteLine("Verification Conditions: ");
+            // foreach (VerificationCondition vc in verificationConditions)
+            // {
+            //     vc.Print(writer);
+            //     writer.WriteLine($"valid = {vc.Valid(solver)}\n");
+            // }
+            // writer.Write("\n");
             
             return allValid ? VERIFIED_OK : VERIFIED_FAIL;
         }
 
         private List<BasicPath> GenBasicPaths(IRMain cfg)
         {
-            // TODO: generate all basic paths
             List<BasicPath> basicPaths = new List<BasicPath>();
             foreach (Function func in cfg.functions)
             {
@@ -139,7 +133,7 @@ namespace cminor
                         VerifierUtils.GetHeadConditions(headBlock),
                         new List<Expression>() {assertStmt.pred},
                         statements,
-                        VerifierUtils.GetHeadConditions(headBlock),
+                        VerifierUtils.GetRankingFunctions(headBlock),
                         null // no need to check ranking functions here
                         );
                     basicPaths.Add(basicPath);
@@ -151,7 +145,7 @@ namespace cminor
                         VerifierUtils.GetHeadConditions(headBlock),
                         VerifierUtils.GetAdjustedFunctionCallPreAssertions(funcStmt),
                         statements,
-                        VerifierUtils.GetHeadConditions(headBlock),
+                        VerifierUtils.GetRankingFunctions(headBlock),
                         VerifierUtils.GetRankingFunctions(funcStmt)
                         );
                     basicPaths.Add(basicPath);
@@ -182,51 +176,49 @@ namespace cminor
         public Expression partialCondition;
         public Expression totalCondition;
         public Expression headRankingFunctionGE0Condition;
-        public Expression tailRankingFunctionGE0Condition;
         public bool checkTermination;
         public bool knowRankingFunctionDescending;
 
         public VerificationCondition(BasicPath basicPath)
         {
             checkTermination = false;
-            if (basicPath.headRankingFunctions != null || basicPath.tailRankingFunctions != null)
+            if (basicPath.headRankingFunctions.Count > 0)
             {
                 checkTermination = true;
-                knowRankingFunctionDescending = (basicPath.tailRankingFunctions == null);
-                if (basicPath.headRankingFunctions != null)
-                {
-                    headRankingFunctionGE0Condition = VerifierUtils.ImpliesExpConstructor(
-                        VerifierUtils.BigAndExpConstructor(basicPath.headConditions), 
-                        VerifierUtils.GE0ExpConstructor(VerifierUtils.BigAndExpConstructor(basicPath.headRankingFunctions))
-                    );                      
-                }
-                if (basicPath.tailRankingFunctions != null)
-                {
-                    tailRankingFunctionGE0Condition = VerifierUtils.ImpliesExpConstructor(
-                        VerifierUtils.BigAndExpConstructor(basicPath.tailConditions),
-                        VerifierUtils.GE0ExpConstructor(VerifierUtils.BigAndExpConstructor(basicPath.tailRankingFunctions))
+                knowRankingFunctionDescending = (basicPath.tailRankingFunctions.Count == 0);
+                headRankingFunctionGE0Condition = VerifierUtils.ImpliesExpConstructor(
+                    VerifierUtils.BigAndExpConstructor(basicPath.headConditions),
+                    VerifierUtils.BigAndExpConstructor(
+                        basicPath.headRankingFunctions
+                            .Select(e => VerifierUtils.GE0ExpConstructor(e))
+                            .ToList()
+                        )
                     );
-                }
-
                 if (!knowRankingFunctionDescending)
                 {
-                    int rankingFunctionLength = basicPath.tailRankingFunctions.Count;
-                    Debug.Assert(
-                        rankingFunctionLength == basicPath.headRankingFunctions.Count, 
-                        "headRankingFunctions.Length != tailRankingFunctions.Length"
-                    );
                     List<Expression> rankingFunctions = new List<Expression>(basicPath.tailRankingFunctions);
-                    rankingFunctions = rankingFunctions
-                        .Select(e => WeakestPreconditionOfStmts(e, basicPath.statements))
+                    List<Expression> freshHeadRankingFunctions = basicPath.headRankingFunctions
+                        .Select(e => VerifierUtils.FreshCopy(e))
                         .ToList();
-                    totalCondition = VerifierUtils.LexGTExpConstrutor(basicPath.headRankingFunctions, rankingFunctions);
+                    List<Expression> headRankingFunctionsCopyInvariants = basicPath.headRankingFunctions
+                        .Select(e => VerifierUtils.FreshCopyInvariant(e))
+                        .ToList();
+                    totalCondition = WeakestPreconditionOfStmts(
+                        VerifierUtils.LexGTExpConstrutor(
+                            freshHeadRankingFunctions,
+                            rankingFunctions
+                            ), 
+                        basicPath.statements
+                        );
                     totalCondition = VerifierUtils.ImpliesExpConstructor(
-                        VerifierUtils.BigAndExpConstructor(basicPath.headConditions),
-                        totalCondition);
+                        VerifierUtils.AndExpConstructor(
+                            VerifierUtils.BigAndExpConstructor(headRankingFunctionsCopyInvariants),
+                            VerifierUtils.BigAndExpConstructor(basicPath.headConditions)),
+                        totalCondition
+                        );
                 }
             }
 
-            checkTermination = false; // TODO: only test partial correctness
             partialCondition = VerifierUtils.BigAndExpConstructor(basicPath.tailConditions);
             partialCondition = WeakestPreconditionOfStmts(partialCondition, basicPath.statements);
             partialCondition = VerifierUtils.ImpliesExpConstructor(
@@ -249,9 +241,6 @@ namespace cminor
             if (stmt is AssumeStatement assume)
             {
                 return VerifierUtils.ImpliesExpConstructor(assume.condition, exp);
-            } else if (stmt is AssertStatement assert)
-            {
-                return VerifierUtils.AndExpConstructor(assert.pred, exp);
             } else if (stmt is AssignStatement)
             {
                 if (stmt is VariableAssignStatement varAssign)
@@ -259,7 +248,14 @@ namespace cminor
                     return exp.Substitute(varAssign.variable, varAssign.rhs);
                 } else if (stmt is SubscriptAssignStatement subAssign)
                 {
-                    return exp.Substitute(subAssign.array, subAssign.rhs);
+                    return exp.Substitute(
+                        subAssign.array, 
+                        new ArrayUpdateExpression(
+                            new VariableExpression(subAssign.array), 
+                            subAssign.subscript, 
+                            subAssign.rhs, 
+                            new VariableExpression(subAssign.array.length)
+                            ));
                 }
                 else
                 {
@@ -282,7 +278,6 @@ namespace cminor
                 termination &= (solver.CheckValid(headRankingFunctionGE0Condition) == null);
                 if (!knowRankingFunctionDescending)
                 {
-                    termination &= (solver.CheckValid(tailRankingFunctionGE0Condition) == null);
                     termination &= (solver.CheckValid(totalCondition) == null);
                 }
             }
@@ -294,6 +289,18 @@ namespace cminor
             writer.Write("partial condition: ");
             partialCondition.Print(writer);
             writer.Write("\n");
+            if (checkTermination)
+            {
+                if (!knowRankingFunctionDescending)
+                {
+                    writer.Write("total condition: ");
+                    totalCondition.Print(writer);
+                    writer.Write("\n");                         
+                }
+                writer.Write("head ranking function >= 0 condition: ");
+                headRankingFunctionGE0Condition.Print(writer);
+                writer.Write("\n"); 
+            }
         }
     }
 
@@ -309,8 +316,8 @@ namespace cminor
             List<Expression> headConditions,
             List<Expression> tailConditions,
             List<Statement> statements,
-            List<Expression> headRankingFunctions,
-            List<Expression> tailRankingFunctions)
+            List<Expression>? headRankingFunctions,
+            List<Expression>? tailRankingFunctions)
         {
             BasicPath basicPath = new BasicPath();
             basicPath.headBlock = headBlock;
@@ -318,14 +325,9 @@ namespace cminor
             basicPath.headConditions = new List<Expression>(headConditions);
             basicPath.tailConditions = new List<Expression>(tailConditions);
             basicPath.statements = new List<Statement>(statements);
-            basicPath.headRankingFunctions = new List<Expression>(headRankingFunctions);
-            basicPath.tailRankingFunctions = new List<Expression>(tailRankingFunctions);
+            if (headRankingFunctions != null) basicPath.headRankingFunctions = new List<Expression>(headRankingFunctions);
+            if (tailRankingFunctions != null) basicPath.tailRankingFunctions = new List<Expression>(tailRankingFunctions);
             return basicPath;
-        }
-        public static bool ContainsFunctionCall(Block block)
-        {
-            if (!(block is BasicBlock)) return false;
-            return block.statements.Any(stmt => stmt is FunctionCallStatement);
         }
 
         public static List<Expression> FuncCondsSubstitute(List<Expression> conditions, List<LocalVariable> vars, List<LocalVariable> varExps)
@@ -405,14 +407,33 @@ namespace cminor
 
         public static List<Expression> GetRankingFunctions(Block block) // loophead or precondition
         {
-            // TODO
+            if (block is LoopHeadBlock loopHead)
+            {
+                return loopHead.rankingFunctions;
+            } else if (block is PreconditionBlock precondition)
+            {
+                return precondition.rankingFunctions;
+            } else if (block is PostconditionBlock)
+            {
+                return null;
+            }
+            else
+            {
+                Debug.Assert(false, "block is not in [LoopHead, Precondition, Postcondition]");
+            }
             return null;
         }
 
         public static List<Expression> GetRankingFunctions(FunctionCallStatement funcStmt)
         {
             // TODO: adjust ranking functions too
-            return null;
+            Function function = funcStmt.rhs.function;
+            List<Expression> rankingFunctions = function.preconditionBlock.rankingFunctions;
+            rankingFunctions = FuncCondsSubstitute(
+                rankingFunctions,
+                function.parameters,
+                funcStmt.rhs.argumentVariables);
+            return rankingFunctions;
         }
 
         public static Expression ImpliesExpConstructor(Expression a, Expression b)
@@ -476,6 +497,33 @@ namespace cminor
                     LexGTExpConstrutor(a1, b1)
                 )
             );
+        }
+
+        public static Expression FreshCopy(Expression exp)
+        {
+            HashSet<LocalVariable> localVariables = exp.GetFreeVariables();
+            foreach (LocalVariable var in localVariables)
+            {
+                LocalVariable varCopy = new LocalVariable();
+                varCopy.type = var.type;
+                varCopy.name = var.name + "_copy";
+                exp = exp.Substitute(var, new VariableExpression(varCopy));
+            }
+            return exp;
+        }
+
+        public static Expression FreshCopyInvariant(Expression exp)
+        {
+            HashSet<LocalVariable> localVariables = exp.GetFreeVariables();
+            List<Expression> conditions = new List<Expression>();
+            foreach (LocalVariable var in localVariables)
+            {
+                LocalVariable varCopy = new LocalVariable();
+                varCopy.type = var.type;
+                varCopy.name = var.name + "_copy";
+                conditions.Add(EQExpConstructor(new VariableExpression(var), new VariableExpression(varCopy)));
+            }
+            return BigAndExpConstructor(conditions);
         }
 
     }

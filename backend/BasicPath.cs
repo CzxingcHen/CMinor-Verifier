@@ -61,6 +61,20 @@ namespace cminor
                 writer.Write(", ");
             }
             writer.Write("\n");
+            writer.Write("headRankingFunctions: ");
+            for (int i = 0; i < headRankingFunctions.Count; i++)
+            {
+                headRankingFunctions[i].Print(writer);
+                writer.Write(", ");
+            }
+            writer.Write("\n");
+            writer.Write("tailRankingFunctions: ");
+            for (int i = 0; i < tailRankingFunctions.Count; i++)
+            {
+                tailRankingFunctions[i].Print(writer);
+                writer.Write(", ");
+            }
+            writer.Write("\n");
             writer.Write("\n");
         }
     }
